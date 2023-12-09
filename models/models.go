@@ -15,7 +15,7 @@ type User struct {
 
 type Basket struct {
 	ID            uint `gorm:"primarykey"`
-	UserID        uint
+	UserID        uint `gorm:"unique"`
 	BasketDevices []BasketDevice
 }
 

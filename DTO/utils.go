@@ -21,6 +21,17 @@ type TypeRequest struct {
 	Name string `json:"name"`
 }
 
+type UserReg struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Role     string `json:"role"`
+}
+
+type UserLogin struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
 func BrandDTOToBrand(brandDTO BrandDTO) models.Brand {
 	var brand models.Brand
 	brand.Name = brandDTO.Name

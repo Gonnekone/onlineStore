@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 )
@@ -254,6 +255,18 @@ func DeleteDevice(c *gin.Context) {
 	}
 
 	for _, i := range indexes {
+		var img string
+		if err := initializers.DB.Raw("SELECT img FROM devices WHERE id = ?", i).Scan(&img).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"Failed to retrieve img": err.Error()})
+			return
+		}
+
+		imgPath := filepath.Join("static", img)
+		if err := os.Remove(imgPath); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"Failed to delete img file": err.Error()})
+			return
+		}
+
 		if err := initializers.DB.Unscoped().Where("device_id = ?", i).Delete(&models.DeviceInfo{}).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"Failed to delete info": err.Error()})
 			return
@@ -263,6 +276,7 @@ func DeleteDevice(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"Failed to delete device": err.Error()})
 			return
 		}
+
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Devices deleted successfully"})

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/Gonnekone/onlineStore/handlers"
 	"github.com/Gonnekone/onlineStore/initializers"
+	"github.com/Gonnekone/onlineStore/middleware"
 	"github.com/gin-gonic/gin"
 )
 
@@ -19,9 +20,9 @@ func main() {
 	// user
 	userControllers := router.Group("/user")
 	{
-		userControllers.POST("/registration")
-		userControllers.POST("/login")
-		userControllers.GET("/auth")
+		userControllers.POST("/registration", handlers.Registration)
+		userControllers.POST("/login", handlers.Login)
+		userControllers.GET("/auth", middleware.Auth, handlers.Validate)
 	}
 
 	// type
