@@ -261,10 +261,12 @@ func DeleteDevice(c *gin.Context) {
 			return
 		}
 
-		imgPath := filepath.Join("static", img)
-		if err := os.Remove(imgPath); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"Failed to delete img file": err.Error()})
-			return
+		if img != "default.jpg" {
+			imgPath := filepath.Join("static", img)
+			if err := os.Remove(imgPath); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"Failed to delete img file": err.Error()})
+				return
+			}
 		}
 
 		if err := initializers.DB.Unscoped().Where("device_id = ?", i).Delete(&models.DeviceInfo{}).Error; err != nil {
