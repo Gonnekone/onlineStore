@@ -17,8 +17,10 @@ func main() {
 	router := gin.Default()
 	router.Static("/static", "./static")
 
+	api := router.Group("/api")
+
 	// user
-	userControllers := router.Group("/user")
+	userControllers := api.Group("/user")
 	{
 		userControllers.POST("/registration", handlers.Registration)
 		userControllers.POST("/login", handlers.Login)
@@ -26,30 +28,30 @@ func main() {
 	}
 
 	// type
-	typeControllers := router.Group("/type")
+	typeControllers := api.Group("/type")
 	{
-		typeControllers.POST("/", handlers.CreateType)
+		typeControllers.POST("/", middleware.Auth, middleware.CheckRoleAdmin, handlers.CreateType)
 		typeControllers.GET("/", handlers.ReadAllTypes)
-		typeControllers.PUT("/", handlers.UpdateType)
-		typeControllers.DELETE("/", handlers.DeleteType)
+		typeControllers.PUT("/", middleware.Auth, middleware.CheckRoleAdmin, handlers.UpdateType)
+		typeControllers.DELETE("/", middleware.Auth, middleware.CheckRoleAdmin, handlers.DeleteType)
 	}
 
 	// brand
-	brandControllers := router.Group("/brand")
+	brandControllers := api.Group("/brand")
 	{
-		brandControllers.POST("/", handlers.CreateBrand)
+		brandControllers.POST("/", middleware.Auth, middleware.CheckRoleAdmin, handlers.CreateBrand)
 		brandControllers.GET("/", handlers.ReadAllBrands)
-		brandControllers.PUT("/", handlers.UpdateBrand)
-		brandControllers.DELETE("/", handlers.DeleteBrand)
+		brandControllers.PUT("/", middleware.Auth, middleware.CheckRoleAdmin, handlers.UpdateBrand)
+		brandControllers.DELETE("/", middleware.Auth, middleware.CheckRoleAdmin, handlers.DeleteBrand)
 	}
 
 	// device
-	deviceControllers := router.Group("/device")
+	deviceControllers := api.Group("/device")
 	{
-		deviceControllers.POST("/", handlers.CreateDevice)
+		deviceControllers.POST("/", middleware.Auth, middleware.CheckRoleAdmin, handlers.CreateDevice)
 		deviceControllers.GET("/", handlers.ReadAllDevices)
-		deviceControllers.PUT("/", handlers.UpdateDevice)
-		deviceControllers.DELETE("/", handlers.DeleteDevice)
+		deviceControllers.PUT("/", middleware.Auth, middleware.CheckRoleAdmin, handlers.UpdateDevice)
+		deviceControllers.DELETE("/", middleware.Auth, middleware.CheckRoleAdmin, handlers.DeleteDevice)
 		deviceControllers.GET("/:id", handlers.ReadOneDevice)
 	}
 
