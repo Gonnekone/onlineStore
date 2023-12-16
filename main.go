@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
-	"github.com/Gonnekone/onlineStore/handlers"
 	"github.com/Gonnekone/onlineStore/initializers"
-	"github.com/Gonnekone/onlineStore/middleware"
-	"github.com/gin-gonic/gin"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 )
 
 func init() {
@@ -14,48 +16,17 @@ func init() {
 }
 
 func main() {
-	router := gin.Default()
-	router.Static("/static", "./static")
+	router := InitRoutes()
+	go func() {
+		if err := router.Run(); err != nil {
+			fmt.Println("Failed to start the server")
+		}
+	}()
 
-	api := router.Group("/api")
+	quit := make(chan os.Signal, 1)
 
-	// user
-	userControllers := api.Group("/user")
-	{
-		userControllers.POST("/registration", handlers.Registration)
-		userControllers.POST("/login", handlers.Login)
-		userControllers.GET("/auth", middleware.Auth, handlers.Validate)
-	}
-
-	// type
-	typeControllers := api.Group("/type")
-	{
-		typeControllers.POST("/", middleware.Auth, middleware.CheckRoleAdmin, handlers.CreateType)
-		typeControllers.GET("/", handlers.ReadAllTypes)
-		typeControllers.PUT("/", middleware.Auth, middleware.CheckRoleAdmin, handlers.UpdateType)
-		typeControllers.DELETE("/", middleware.Auth, middleware.CheckRoleAdmin, handlers.DeleteType)
-	}
-
-	// brand
-	brandControllers := api.Group("/brand")
-	{
-		brandControllers.POST("/", middleware.Auth, middleware.CheckRoleAdmin, handlers.CreateBrand)
-		brandControllers.GET("/", handlers.ReadAllBrands)
-		brandControllers.PUT("/", middleware.Auth, middleware.CheckRoleAdmin, handlers.UpdateBrand)
-		brandControllers.DELETE("/", middleware.Auth, middleware.CheckRoleAdmin, handlers.DeleteBrand)
-	}
-
-	// device
-	deviceControllers := api.Group("/device")
-	{
-		deviceControllers.POST("/", middleware.Auth, middleware.CheckRoleAdmin, handlers.CreateDevice)
-		deviceControllers.GET("/", handlers.ReadAllDevices)
-		deviceControllers.PUT("/", middleware.Auth, middleware.CheckRoleAdmin, handlers.UpdateDevice)
-		deviceControllers.DELETE("/", middleware.Auth, middleware.CheckRoleAdmin, handlers.DeleteDevice)
-		deviceControllers.GET("/:id", handlers.ReadOneDevice)
-	}
-
-	if err := router.Run(); err != nil {
-		fmt.Println("Failed to start the server")
-	}
+	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
+	<-quit
+	log.Print("Shutting down server...")
+	time.Sleep(10 * time.Second)
 }
