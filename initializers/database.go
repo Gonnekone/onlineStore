@@ -26,10 +26,7 @@ func ConnectToDBDocker() {
 	if err != nil {
 		panic("failed to connect database: " + dsn)
 	}
-	//err = DB.AutoMigrate(&models.Answer{})
-	if err != nil {
-		panic("failed to migrate database")
-	}
+	models.AutoMigrate(DB)
 }
 
 func ConnectToDB() {
