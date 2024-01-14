@@ -22,6 +22,11 @@ func Registration(c *gin.Context) {
 		return
 	}
 
+	if err := userReg.Validate(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err})
+		return
+	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(userReg.Password), 10)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -66,6 +71,11 @@ func Login(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&userLogin); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := userLogin.Validate(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err})
 		return
 	}
 

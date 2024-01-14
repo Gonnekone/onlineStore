@@ -1,6 +1,10 @@
 package DTO
 
-import "github.com/Gonnekone/onlineStore/models"
+import (
+	"github.com/Gonnekone/onlineStore/models"
+	validation "github.com/go-ozzo/ozzo-validation"
+	"github.com/go-ozzo/ozzo-validation/is"
+)
 
 type BrandRequest struct {
 	ID   uint   `json:"id"`
@@ -27,9 +31,23 @@ type UserReg struct {
 	Role     string `json:"role"`
 }
 
+func (r UserReg) Validate() interface{} {
+	return validation.ValidateStruct(&r,
+		validation.Field(&r.Email, validation.Required, validation.Length(5, 50), is.Email),
+		validation.Field(&r.Password, validation.Required),
+	)
+}
+
 type UserLogin struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+}
+
+func (l UserLogin) Validate() interface{} {
+	return validation.ValidateStruct(&l,
+		validation.Field(&l.Email, validation.Required, validation.Length(5, 50), is.Email),
+		validation.Field(&l.Password, validation.Required),
+	)
 }
 
 func BrandDTOToBrand(brandDTO BrandDTO) models.Brand {
