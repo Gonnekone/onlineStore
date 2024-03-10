@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/Gonnekone/onlineStore/handlers"
 	"github.com/Gonnekone/onlineStore/middleware"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
@@ -49,6 +50,7 @@ func InitRoutes() *gin.Engine {
 	}
 
 	router.Static("/static", "./static")
+	router.Use(cors.Default())
 
 	return router
 }
