@@ -31,7 +31,7 @@ type UserReg struct {
 	Role     string `json:"role"`
 }
 
-func (r UserReg) Validate() interface{} {
+func (r UserReg) Validate() error {
 	return validation.ValidateStruct(&r,
 		validation.Field(&r.Email, validation.Required, validation.Length(5, 50), is.Email),
 		validation.Field(&r.Password, validation.Required),
@@ -43,7 +43,7 @@ type UserLogin struct {
 	Password string `json:"password"`
 }
 
-func (l UserLogin) Validate() interface{} {
+func (l UserLogin) Validate() error {
 	return validation.ValidateStruct(&l,
 		validation.Field(&l.Email, validation.Required, validation.Length(5, 50), is.Email),
 		validation.Field(&l.Password, validation.Required),

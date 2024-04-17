@@ -3,33 +3,34 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
-	"github.com/Gonnekone/onlineStore/DTO"
-	"github.com/Gonnekone/onlineStore/initializers"
-	"github.com/Gonnekone/onlineStore/models"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-	"gorm.io/gorm"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"github.com/Gonnekone/onlineStore/DTO"
+	"github.com/Gonnekone/onlineStore/initializers"
+	"github.com/Gonnekone/onlineStore/models"
+	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
-func CreateDevice(c *gin.Context) {
-	form, err := c.MultipartForm()
+func CreateDevice(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseMultipartForm(10 << 20) // 10 MB max size
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error parsing form-data": err.Error()})
+		http.Error(w, "error parsing form-data: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	files := form.File["files"]
+	files := r.MultipartForm.File["files"]
 
 	var deviceDTOs []DTO.DeviceDTO
 
-	data := form.Value["data"]
+	data := r.MultipartForm.Value["data"]
 
 	if err := json.Unmarshal([]byte(data[0]), &deviceDTOs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error parsing JSON": err.Error()})
+		http.Error(w, "error parsing JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -41,11 +42,26 @@ func CreateDevice(c *gin.Context) {
 			file := files[i]
 			fileName := uuid.NewString() + ".jpg"
 
-			err := c.SaveUploadedFile(file, filepath.Join("static", fileName))
+			filePath := filepath.Join("static", fileName)
+			dst, err := os.Create(filePath)
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save image"})
+				http.Error(w, "Failed to save image: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
+			defer dst.Close()
+
+			src, err := file.Open()
+			if err != nil {
+				http.Error(w, "Failed to open uploaded file: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			defer src.Close()
+
+			if _, err := io.Copy(dst, src); err != nil {
+				http.Error(w, "Failed to save image: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+
 			device.Img = fileName
 		} else {
 			device.Img = "default.jpg"
@@ -53,21 +69,21 @@ func CreateDevice(c *gin.Context) {
 
 		if errors.Is(initializers.DB.Where("name = ?", device.Type.Name).First(&device.Type).Error, gorm.ErrRecordNotFound) {
 			if err := initializers.DB.Create(&device.Type).Error; err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"Failed to create types": err.Error()})
+				http.Error(w, "Failed to create types: "+err.Error(), http.StatusBadRequest)
 				return
 			}
 		}
 
 		if errors.Is(initializers.DB.Where("name = ?", device.Brand.Name).First(&device.Brand).Error, gorm.ErrRecordNotFound) {
 			if err := initializers.DB.Create(&device.Brand).Error; err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"Failed to create brands": err.Error()})
+				http.Error(w, "Failed to create brands: "+err.Error(), http.StatusBadRequest)
 				return
 			}
 		}
 
 		if errors.Is(initializers.DB.Where("name = ?", device.Name).First(&device).Error, gorm.ErrRecordNotFound) {
 			if err := initializers.DB.Create(&device).Error; err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"Failed to create devices": err.Error()})
+				http.Error(w, "Failed to create devices: "+err.Error(), http.StatusBadRequest)
 				return
 			}
 		}
@@ -78,18 +94,19 @@ func CreateDevice(c *gin.Context) {
 
 		if errors.Is(initializers.DB.Where("id = ?", device.ID).First(&device.Info).Error, gorm.ErrRecordNotFound) {
 			if err := initializers.DB.Create(&device.Info).Error; err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"Failed to create info": err.Error()})
+				http.Error(w, "Failed to create info: "+err.Error(), http.StatusBadRequest)
 				return
 			}
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Devices created successfully"})
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Devices created successfully"})
 }
 
-func ReadAllDevices(c *gin.Context) {
-	limit, _ := strconv.Atoi(c.Query("limit"))
-	page, _ := strconv.Atoi(c.Query("page"))
+func ReadAllDevices(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 
 	if page == 0 {
 		page = 1
@@ -103,8 +120,8 @@ func ReadAllDevices(c *gin.Context) {
 
 	var typeIdPtr *int
 	var brandIdPtr *int
-	typeId, _ := strconv.Atoi(c.Query("typeId"))
-	brandId, _ := strconv.Atoi(c.Query("brandId"))
+	typeId, _ := strconv.Atoi(r.URL.Query().Get("typeId"))
+	brandId, _ := strconv.Atoi(r.URL.Query().Get("brandId"))
 
 	if typeId != 0 {
 		typeIdPtr = &typeId
@@ -118,77 +135,79 @@ func ReadAllDevices(c *gin.Context) {
 	var count int64
 	if err := initializers.DB.Where("type_id = COALESCE(?, type_id) AND brand_id = COALESCE(?, brand_id)", typeIdPtr, brandIdPtr).
 		Limit(limit).Offset(offset).Find(&devices).Count(&count).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"Failed to retrieve devices": err.Error()})
+		http.Error(w, "Failed to retrieve devices: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	var deviceDTOs []DTO.DeviceDTOImage
 	for _, device := range devices {
 		if err := initializers.DB.First(&device.Type, device.TypeID).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"Failed to retrieve type": err.Error()})
+			http.Error(w, "Failed to retrieve type: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		if err := initializers.DB.First(&device.Brand, device.BrandID).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"Failed to retrieve brand": err.Error()})
+			http.Error(w, "Failed to retrieve brand: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		if err := initializers.DB.Where("device_id = ?", device.ID).Find(&device.Info).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"Failed to retrieve info": err.Error()})
+			http.Error(w, "Failed to retrieve info: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		deviceDTOs = append(deviceDTOs, DTO.DeviceToDeviceDTOImage(device))
 	}
 
-	c.JSON(http.StatusOK, gin.H{"count": count, "rows": deviceDTOs})
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{"count": count, "rows": deviceDTOs})
 }
 
-func ReadOneDevice(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+func ReadOneDevice(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.Atoi(r.URL.Query().Get("id"))
 	var device models.Device
 	if err := initializers.DB.First(&device, id).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"Failed to retrieve device": err.Error()})
+		http.Error(w, "Failed to retrieve device: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	var deviceDTO DTO.DeviceDTOImage
 	if err := initializers.DB.First(&device.Type, device.TypeID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"Failed to retrieve type": err.Error()})
+		http.Error(w, "Failed to retrieve type: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if err := initializers.DB.First(&device.Brand, device.BrandID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"Failed to retrieve brand": err.Error()})
+		http.Error(w, "Failed to retrieve brand: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if err := initializers.DB.Where("device_id = ?", device.ID).Find(&device.Info).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"Failed to retrieve info": err.Error()})
+		http.Error(w, "Failed to retrieve info: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	deviceDTO = DTO.DeviceToDeviceDTOImage(device)
 
-	c.JSON(http.StatusOK, deviceDTO)
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(deviceDTO)
 }
 
-func UpdateDevice(c *gin.Context) {
-	form, err := c.MultipartForm()
+func UpdateDevice(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseMultipartForm(10 << 20) // 10 MB max size
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error parsing form-data": err.Error()})
+		http.Error(w, "error parsing form-data: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	files := form.File["files"]
+	files := r.MultipartForm.File["files"]
 
 	var deviceRequests []DTO.DeviceRequest
 
-	data := form.Value["data"]
+	data := r.MultipartForm.Value["data"]
 
 	if err := json.Unmarshal([]byte(data[0]), &deviceRequests); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error parsing JSON": err.Error()})
+		http.Error(w, "error parsing JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -199,31 +218,46 @@ func UpdateDevice(c *gin.Context) {
 			file := files[i]
 			fileName := uuid.NewString() + ".jpg"
 
-			err := c.SaveUploadedFile(file, filepath.Join("static", fileName))
+			filePath := filepath.Join("static", fileName)
+			dst, err := os.Create(filePath)
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"Failed to save image": err.Error()})
+				http.Error(w, "Failed to save image: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
+			defer dst.Close()
+
+			src, err := file.Open()
+			if err != nil {
+				http.Error(w, "Failed to open uploaded file: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			defer src.Close()
+
+			if _, err := io.Copy(dst, src); err != nil {
+				http.Error(w, "Failed to save image: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+
 			device.Img = fileName
 		}
 
 		if err := initializers.DB.First(&device, deviceRequest.ID).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"Failed to retrieve devices": err.Error()})
+			http.Error(w, "Failed to retrieve devices: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		if err := initializers.DB.First(&device.Type, deviceRequest.ID).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"Failed to retrieve type": err.Error()})
+			http.Error(w, "Failed to retrieve type: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		if err := initializers.DB.Where("name = ?", device.Brand.Name).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"Failed to retrieve brand": err.Error()})
+			http.Error(w, "Failed to retrieve brand: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		if err := initializers.DB.Where("device_id = ?", deviceRequest.ID).Find(&device.Info).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"Failed to retrieve info": err.Error()})
+			http.Error(w, "Failed to retrieve info: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -233,53 +267,54 @@ func UpdateDevice(c *gin.Context) {
 		device.Brand.ID = device.BrandID
 
 		if err := initializers.DB.Unscoped().Where("device_id = ?", device.ID).Delete(&models.DeviceInfo{}).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"Failed to delete info": err.Error()})
+			http.Error(w, "Failed to delete info: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		if err := initializers.DB.Save(&device).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"Failed to update device": err.Error()})
+			http.Error(w, "Failed to update device: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Devices updated successfully"})
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Devices updated successfully"})
 }
 
-func DeleteDevice(c *gin.Context) {
+func DeleteDevice(w http.ResponseWriter, r *http.Request) {
 	var indexes []uint
 
-	if err := c.ShouldBindJSON(&indexes); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error parsing JSON": err.Error()})
+	if err := json.NewDecoder(r.Body).Decode(&indexes); err != nil {
+		http.Error(w, "error parsing JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	for _, i := range indexes {
 		var img string
 		if err := initializers.DB.Raw("SELECT img FROM devices WHERE id = ?", i).Scan(&img).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"Failed to retrieve img": err.Error()})
+			http.Error(w, "Failed to retrieve img: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		if img != "default.jpg" {
 			imgPath := filepath.Join("static", img)
 			if err := os.Remove(imgPath); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"Failed to delete img file": err.Error()})
+				http.Error(w, "Failed to delete img file: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
 		}
 
 		if err := initializers.DB.Unscoped().Where("device_id = ?", i).Delete(&models.DeviceInfo{}).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"Failed to delete info": err.Error()})
+			http.Error(w, "Failed to delete info: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		if err := initializers.DB.Unscoped().Delete(&models.Device{}, i).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"Failed to delete device": err.Error()})
+			http.Error(w, "Failed to delete device: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Devices deleted successfully"})
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Devices deleted successfully"})
 }

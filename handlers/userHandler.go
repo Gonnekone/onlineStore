@@ -1,35 +1,36 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
-	"github.com/Gonnekone/onlineStore/DTO"
-	"github.com/Gonnekone/onlineStore/initializers"
-	"github.com/Gonnekone/onlineStore/models"
-	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
-	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/Gonnekone/onlineStore/DTO"
+	"github.com/Gonnekone/onlineStore/initializers"
+	"github.com/Gonnekone/onlineStore/models"
+	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
-func Registration(c *gin.Context) {
+func Registration(w http.ResponseWriter, r *http.Request) {
 	var userReg DTO.UserReg
 
-	if err := c.ShouldBindJSON(&userReg); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := json.NewDecoder(r.Body).Decode(&userReg); err != nil {
+		http.Error(w, "error decoding JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	if err := userReg.Validate(); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err})
+		http.Error(w, "error validating user data: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(userReg.Password), 10)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		http.Error(w, "error generating password hash: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -41,81 +42,104 @@ func Registration(c *gin.Context) {
 		user.Role = userReg.Role
 	}
 
-	if errors.Is(initializers.DB.Where("email = ?", userReg.Email).First(&user).Error, gorm.ErrRecordNotFound) {
-		if err := initializers.DB.Create(&user).Error; err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"Failed to create user": err.Error()})
+	var existingUser models.User
+	if err := initializers.DB.Where("email = ?", userReg.Email).First(&existingUser).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			if err := initializers.DB.Create(&user).Error; err != nil {
+				http.Error(w, "Failed to create user: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+		} else {
+			http.Error(w, "error checking existing email: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 	} else {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Email already in use"})
+		http.Error(w, "Email already in use", http.StatusBadRequest)
 		return
 	}
 
 	var basket models.Basket
 	basket.UserID = user.ID
 	if err := initializers.DB.Create(&basket).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"Failed to create basket": err.Error()})
+		http.Error(w, "Failed to create basket: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	tokenString := generateToken(user.ID, user.Email, user.Role)
 
-	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie("Authorization", tokenString, 3600*24*30, "", "", false, true)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "Authorization",
+		Value:    tokenString,
+		Expires:  time.Now().Add(time.Hour * 24 * 30),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
 
-	c.JSON(http.StatusOK, gin.H{"message": "User created successfully"})
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "User created successfully"})
 }
 
-func Login(c *gin.Context) {
+func Login(w http.ResponseWriter, r *http.Request) {
 	var userLogin DTO.UserLogin
 
-	if err := c.ShouldBindJSON(&userLogin); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := json.NewDecoder(r.Body).Decode(&userLogin); err != nil {
+		http.Error(w, "error decoding JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	if err := userLogin.Validate(); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err})
+		http.Error(w, "error validating user data: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	var user models.User
 	if err := initializers.DB.Where("email = ?", userLogin.Email).First(&user).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"Email not found": err.Error()})
+		http.Error(w, "Email not found: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(userLogin.Password)); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"Invalid password": err.Error()})
+		http.Error(w, "Invalid password: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	tokenString := generateToken(user.ID, user.Email, user.Role)
 
-	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie("Authorization", tokenString, 3600*24*30, "", "", false, true)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "Authorization",
+		Value:    tokenString,
+		Expires:  time.Now().Add(time.Hour * 24 * 30),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
 
-	c.Status(http.StatusOK)
+	w.WriteHeader(http.StatusOK)
 }
 
-func Validate(c *gin.Context) {
-	user, _ := c.Get("user")
-	tokenString := generateToken(user.(models.User).ID, user.(models.User).Email, user.(models.User).Role)
+func Validate(w http.ResponseWriter, r *http.Request) {
+	user := r.Context().Value("user").(models.User)
+	tokenString := generateToken(user.ID, user.Email, user.Role)
 
-	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie("Authorization", tokenString, 3600*24*30, "", "", false, true)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "Authorization",
+		Value:    tokenString,
+		Expires:  time.Now().Add(time.Hour * 24 * 30),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
 
-	c.Status(http.StatusOK)
+	w.WriteHeader(http.StatusOK)
 }
 
 func generateToken(id uint, email, role string) string {
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+	claims := jwt.MapClaims{
 		"timeIssued": time.Now().Unix(),
 		"exp":        time.Now().Add(time.Hour * 24 * 30).Unix(),
 		"user_id":    id,
 		"user_role":  role,
 		"user_email": email,
-	})
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
 	tokenString, _ := token.SignedString([]byte(os.Getenv("SECRET_KEY")))
 	return tokenString
